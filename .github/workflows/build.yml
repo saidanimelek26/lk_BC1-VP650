@@ -7,16 +7,20 @@ on:
 
 jobs:
   lk-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
     - name: Checkout sources
       uses: actions/checkout@v4
 
-    - name: Install Python 2
+    - name: Set up Python 2.7 (CPython)
       run: |
         sudo apt-get update
-        sudo apt-get install -y python2 || true
+        sudo apt-get install -y python2
+        sudo ln -sf /usr/bin/python2 /usr/local/bin/python
+        python --version
+        python -c "import sys; print(sys.version)"
+        command -v python
 
     - name: Build the bootloader
       run: |
@@ -26,5 +30,6 @@ jobs:
     - name: Upload bootloader
       uses: actions/upload-artifact@v4
       with:
-        name: k80hd_bsp_fwv_512m_lk-signed.img
+        name: k80hd_bsp_fwv_512m_lk-signed
         path: build-k80hd_bsp_fwv_512m/lk-sign.img
+        if-no-files-found: error
