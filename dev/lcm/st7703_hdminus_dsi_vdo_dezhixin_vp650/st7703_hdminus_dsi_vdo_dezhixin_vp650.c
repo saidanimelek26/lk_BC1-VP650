@@ -298,12 +298,9 @@ static unsigned int lcm_compare_id(void)
 	return (LCM_ID == id) ? TRUE : FALSE;   /* LK: clz/subs -> 0x9504 compare */
 }
 
-/* ------------------------------------------------------------------ */
-/* Driver object - name string verified at 0x81E4C2C8                 */
-/* ------------------------------------------------------------------ */
 
-LCM_DRIVER st7703_hdminus_dsi_vdo_dezhixin_vp650_lcm_drv = {
-	.name           = "st7703_hdminus_dsi_vdo_dezhixin_vp650",
+LCM_DRIVER st7703_hdminus_dsi_vdo_dezhixin_vp650 = {
+	.name           = "st7703_hdminus_dsi_vdo_dezhixin_vp650_lcm_drv",
 	.set_util_funcs = lcm_set_util_funcs,
 	.get_params     = lcm_get_params,
 	.init           = lcm_init,
