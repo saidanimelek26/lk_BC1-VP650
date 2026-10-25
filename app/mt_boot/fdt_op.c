@@ -68,6 +68,10 @@ extern u32 g_64bit_dtb_size;
 extern int g_is_64bit_kernel;
 extern char *p_AB_suffix;
 
+/* LCM panel name to inject into /chosen/bootargs */
+#define LCM_PANEL_NAME      "st7703_hdminus_dsi_vdo_dezhixin_vp650"
+#define LCM_BOOTARG_PREFIX  "atag,videolfb-lcmname="
+#define BOOTARGS_BUF_SIZE   2048
 
 #define DTBO_PART_NEW_A_NAME "dtbo_a"
 
@@ -82,6 +86,9 @@ extern int mboot_recovery_load_raw_part(char *part_name, unsigned long *addr, un
 extern int unshield_recovery_detection(void);
 extern int mboot_common_load_part(char *part_name, char *img_name, unsigned long addr);
 
+/* Forward declaration */
+static int set_lcm_bootarg(void *fdt);
+
 DTBO_SRC get_dtbo_src(void)
 {
 	return g_dtbo_load_src;
@@ -95,6 +102,84 @@ void *get_kernel_fdt(void)
 {
 	return g_fdt;
 }
+
+/***********************************************************************
+* Helper: append "atag,videolfb-lcmname=<panel>" to /chosen/bootargs
+* so the kernel LCM driver binds the correct panel at boot.
+************************************************************************/
+static int set_lcm_bootarg(void *fdt)
+{
+	int chosen;
+	int ret;
+	char bootargs[BOOTARGS_BUF_SIZE];
+	const char *old_bootargs;
+	int old_len;
+	int new_len;
+
+	if (fdt == NULL) {
+		pal_log_err("set_lcm_bootarg: fdt is NULL\n");
+		return -1;
+	}
+
+	ret = fdt_check_header(fdt);
+	if (ret) {
+		pal_log_err("set_lcm_bootarg: bad fdt header, ret=%d\n", ret);
+		return ret;
+	}
+
+	chosen = fdt_path_offset(fdt, "/chosen");
+	if (chosen < 0) {
+		/* create /chosen if missing */
+		chosen = fdt_add_subnode(fdt, 0, "chosen");
+		if (chosen < 0) {
+			pal_log_err("set_lcm_bootarg: fdt_add_subnode(/chosen) failed: %d\n",
+				    chosen);
+			return chosen;
+		}
+	}
+
+	old_bootargs = fdt_getprop(fdt, chosen, "bootargs", &old_len);
+	if (old_bootargs == NULL || old_len <= 0) {
+		old_len = 0;
+		old_bootargs = "";
+	}
+
+	/* Copy existing bootargs */
+	if (old_len >= (int)sizeof(bootargs) - 1) {
+		pal_log_err("set_lcm_bootarg: existing bootargs too long (%d)\n",
+			    old_len);
+		return -1;
+	}
+	memcpy(bootargs, old_bootargs, old_len);
+	bootargs[old_len] = '\0';
+
+	/* Append LCM panel name if not already present */
+	if (strstr(bootargs, LCM_BOOTARG_PREFIX) == NULL) {
+		new_len = snprintf(bootargs + old_len,
+				   sizeof(bootargs) - old_len,
+				   "%s" LCM_BOOTARG_PREFIX "%s",
+				   (old_len > 0 && bootargs[old_len - 1] != ' ')
+					? " " : "",
+				   LCM_PANEL_NAME);
+		if (new_len <= 0 ||
+		    (old_len + new_len) >= (int)sizeof(bootargs)) {
+			pal_log_err("set_lcm_bootarg: not enough space for bootargs\n");
+			return -1;
+		}
+	}
+
+	ret = fdt_setprop(fdt, chosen, "bootargs", bootargs,
+			  strlen(bootargs) + 1);
+	if (ret) {
+		pal_log_err("set_lcm_bootarg: fdt_setprop(bootargs) failed: %d\n",
+			    ret);
+		return ret;
+	}
+
+	pal_log_info("LCM bootarg set: %s\n", bootargs);
+	return 0;
+}
+
 /***********************************************************************
 * API to retrieve where dtbo partition from, the name is fallback iterated
 ************************************************************************/
@@ -296,7 +381,10 @@ void *get_lk_overlayed_dtb(void){return g_fdt;}
 int32_t prepare_kernel_dtb(void){return 0;}
 
 /***********************************************************************
-* Done after bldr_load_dtb, overlay from associated dtbo partition
+* Done after bldr_load_dtb, overlay from associated dtbo partition.
+* After the overlay is merged into g_fdt, the LCM panel name is
+* injected into /chosen/bootargs so the kernel binds the correct
+* panel (st7703_hdminus_dsi_vdo_dezhixin_vp650).
 ************************************************************************/
 bool dtb_overlay(void *fdt, int size, uint64_t recovery_dtbo_offset)
 {
@@ -414,6 +502,20 @@ bool dtb_overlay(void *fdt, int size, uint64_t recovery_dtbo_offset)
 
 	free(merged_fdt);
 	free(overlay_buf);
+
+	/*
+	 * <<< ADDED HERE >>>
+	 * Inject the LCM panel name into /chosen/bootargs so that
+	 * every overlay path (bldr_load_dtb and prepare_kernel_dtb)
+	 * receives the correct panel:
+	 *   atag,videolfb-lcmname=st7703_hdminus_dsi_vdo_dezhixin_vp650
+	 *
+	 * This is done AFTER the merged DTB has been copied into g_fdt,
+	 * so the property lands in the final DTB that is passed to the
+	 * kernel via r2.
+	 */
+	if (set_lcm_bootarg(g_fdt) != 0)
+		pal_log_err("Warning: failed to set LCM bootarg in dtb_overlay\n");
 
 	return TRUE;
 }
@@ -652,8 +754,8 @@ int bldr_load_dtb(char *boot_load_partition)
 	/*
 	 * Overlay the DTBO from the standalone dtbo partition
 	 * (dtbo-sign.img) onto the main DTB using libufdt.
-	 * This reads the board-specific overlay and merges it
-	 * with the base device tree before the kernel is booted.
+	 * The LCM panel name is injected into /chosen/bootargs
+	 * inside dtb_overlay() after the merge completes.
 	 */
 	ret = dtb_overlay(g_fdt, DTB_MAX_SIZE, (uint64_t)recovery_dtbo_offset);
 	if (ret == TRUE) {
@@ -666,7 +768,8 @@ int bldr_load_dtb(char *boot_load_partition)
 	} else {
 		pal_log_err("dtb_overlay failed, ret: 0x%x!\n", ret);
 	}
-	/* command line buffer init */
+
+	/* command line buffer init (runs after LCM name already set by overlay) */
 	bootargs_init(g_fdt);
 
 	return ret;
@@ -836,6 +939,10 @@ int32_t prepare_kernel_dtb(void)
 			memcpy(get_kernel_fdt(), overlayed_dtb, overlayed_dtb_size);
 			/* enlarge kernel's fdt for further property setting */
 			fdt_set_totalsize(get_kernel_fdt(), DTB_MAX_SIZE);
+
+			/* Inject LCM panel name into the final kernel DTB */
+			if (set_lcm_bootarg(get_kernel_fdt()) != 0)
+				pal_log_err("Warning: failed to set LCM bootarg\n");
 		} else {
 			ret = -1;
 			pal_log_err("overlayed_dtb is NULL");
@@ -898,6 +1005,11 @@ int32_t dtb_overlay(void *main_dtb_addr, uint32_t main_dtb_size,
 			free(merged_fdt);
 		return -1;
 	}
+
+	/* Inject LCM panel name into the merged DTB before returning it */
+	if (set_lcm_bootarg((void *)merged_fdt) != 0)
+		pal_log_err("Warning: failed to set LCM bootarg in dtb_overlay\n");
+
 	*merged_dtb = (void *)merged_fdt;
 	return ret;
 }
