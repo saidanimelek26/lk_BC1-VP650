@@ -649,13 +649,22 @@ int bldr_load_dtb(char *boot_load_partition)
 		ret = -1;
 	}
 
-	/* load odmdtbo and overlay */
+	/*
+	 * Overlay the DTBO from the standalone dtbo partition
+	 * (dtbo-sign.img) onto the main DTB using libufdt.
+	 * This reads the board-specific overlay and merges it
+	 * with the base device tree before the kernel is booted.
+	 */
 	ret = dtb_overlay(g_fdt, DTB_MAX_SIZE, (uint64_t)recovery_dtbo_offset);
 	if (ret == TRUE) {
 		if (!strcmp(part_name, "recovery")) {
 			set_recovery_dtbo_loaded();
 			pal_log_err("dtb_overlay for recovery done !\n");
+		} else {
+			pal_log_err("dtb_overlay for boot done !\n");
 		}
+	} else {
+		pal_log_err("dtb_overlay failed, ret: 0x%x!\n", ret);
 	}
 	/* command line buffer init */
 	bootargs_init(g_fdt);
