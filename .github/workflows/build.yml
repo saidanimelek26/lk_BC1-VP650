@@ -27,9 +27,11 @@ jobs:
         export python=python2
         make k80hd_bsp_fwv_512m
 
-    - name: Upload bootloader
+    - name: Upload bootloader (lk.img + lk-sign.img)
       uses: actions/upload-artifact@v4
       with:
-        name: k80hd_bsp_fwv_512m_lk-signed
-        path: build-k80hd_bsp_fwv_512m/lk-sign.img
+        name: k80hd_bsp_fwv_512m_lk-images
+        path: |
+          build-k80hd_bsp_fwv_512m/lk.img
+          build-k80hd_bsp_fwv_512m/lk-sign.img
         if-no-files-found: error
